@@ -31,6 +31,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
+APP_VERSION = "2026-05-08-progress-ui"
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
@@ -1847,6 +1848,7 @@ def file_too_large(_error):
 def health():
     return {
         "ok": True,
+        "version": APP_VERSION,
         "password_enabled": password_enabled(),
         "deepseek_key_configured": bool(openai.api_key),
         "deepseek_base": openai.api_base,

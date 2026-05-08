@@ -197,6 +197,54 @@
             color: var(--danger);
         }
 
+        .progress-panel {
+            display: none;
+            gap: 14px;
+            padding: 18px;
+            border: 1px solid #b7d7ee;
+            border-radius: 8px;
+            background: #f4f9fd;
+        }
+
+        .progress-panel.show { display: grid; }
+
+        .progress-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            font-weight: 700;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 10px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #d9e7f2;
+        }
+
+        .progress-bar {
+            width: 8%;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--primary), #2f8fb8);
+            transition: width 700ms ease;
+        }
+
+        .progress-step {
+            margin: 0;
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .progress-note {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
         @media (max-width: 720px) {
             main {
                 width: min(100% - 24px, 980px);
@@ -225,7 +273,7 @@
             {% endif %}
         </section>
 
-        <form method="POST" enctype="multipart/form-data">
+        <form id="optimizer_form" method="POST" enctype="multipart/form-data">
             {% if error %}
                 <div class="error">{{ error }}</div>
             {% endif %}
@@ -290,8 +338,61 @@
                 </div>
             {% endif %}
 
-            <button type="submit">生成优化简历</button>
+            <div id="progress_panel" class="progress-panel" aria-live="polite">
+                <div class="progress-head">
+                    <span>正在生成优化简历</span>
+                    <span id="progress_percent">8%</span>
+                </div>
+                <div class="progress-track" aria-hidden="true">
+                    <div id="progress_bar" class="progress-bar"></div>
+                </div>
+                <p id="progress_step" class="progress-step">正在上传并读取文件...</p>
+                <p class="progress-note">生成过程通常需要 1-4 分钟。请保持页面打开，不要重复点击提交。</p>
+            </div>
+
+            <button id="submit_button" type="submit">生成优化简历</button>
         </form>
     </main>
+    <script>
+        const optimizerForm = document.getElementById("optimizer_form");
+        const submitButton = document.getElementById("submit_button");
+        const progressPanel = document.getElementById("progress_panel");
+        const progressBar = document.getElementById("progress_bar");
+        const progressPercent = document.getElementById("progress_percent");
+        const progressStep = document.getElementById("progress_step");
+
+        const progressSteps = [
+            { percent: 8, text: "正在上传并读取文件..." },
+            { percent: 18, text: "正在解析简历、JD 和成果材料..." },
+            { percent: 34, text: "正在理解岗位要求和候选人经历..." },
+            { percent: 52, text: "正在生成针对岗位的简历改写..." },
+            { percent: 70, text: "正在整理 Word 格式并保护原始版式..." },
+            { percent: 84, text: "正在生成匹配度说明和修改记录..." },
+            { percent: 92, text: "快好了，正在保存下载文件..." }
+        ];
+
+        function setProgress(step) {
+            progressBar.style.width = `${step.percent}%`;
+            progressPercent.textContent = `${step.percent}%`;
+            progressStep.textContent = step.text;
+        }
+
+        if (optimizerForm) {
+            optimizerForm.addEventListener("submit", () => {
+                submitButton.disabled = true;
+                submitButton.textContent = "生成中...";
+                progressPanel.classList.add("show");
+                setProgress(progressSteps[0]);
+
+                let index = 0;
+                window.setInterval(() => {
+                    if (index < progressSteps.length - 1) {
+                        index += 1;
+                        setProgress(progressSteps[index]);
+                    }
+                }, 18000);
+            });
+        }
+    </script>
 </body>
 </html>
