@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>处理失败</title>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --text: #20242c;
+            --muted: #657084;
+            --line: #dce1ea;
+            --danger-bg: #fff1f0;
+            --danger: #b42318;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        main {
+            width: min(640px, calc(100% - 32px));
+            padding: 28px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: 0 18px 45px rgba(32, 36, 44, 0.08);
+        }
+
+        h1 {
+            margin: 0 0 12px;
+            font-size: 26px;
+            letter-spacing: 0;
+        }
+
+        p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .error {
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #ffccc7;
+            overflow-wrap: anywhere;
+            line-height: 1.7;
+        }
+
+        a {
+            display: inline-flex;
+            align-items: center;
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            color: var(--text);
+            background: #fff;
+            text-decoration: none;
+            font-weight: 700;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>处理失败</h1>
+        <p>这次请求没有完成。请把 Railway 日志里的 traceback 发给维护者，或开启 SHOW_ERROR_DETAILS 临时查看错误。</p>
+        <div class="error">{{ message }}</div>
+        <p></p>
+        <a href="/">返回首页</a>
+    </main>
+</body>
+</html>

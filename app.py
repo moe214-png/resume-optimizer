@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import traceback
 import zipfile
 from datetime import datetime
 from html import unescape
@@ -1831,6 +1832,26 @@ def index():
 @app.errorhandler(413)
 def file_too_large(_error):
     return render_index(error="文件太大，请上传 8MB 以内的简历。"), 413
+
+
+@app.get("/health")
+def health():
+    return {
+        "ok": True,
+        "password_enabled": password_enabled(),
+        "deepseek_key_configured": bool(openai.api_key),
+        "deepseek_base": openai.api_base,
+        "output_dir_exists": OUTPUT_DIR.exists(),
+    }
+
+
+@app.errorhandler(Exception)
+def internal_error(error):
+    traceback.print_exc()
+    message = "服务器处理失败，请稍后重试。"
+    if os.getenv("SHOW_ERROR_DETAILS", "").strip() == "1":
+        message = f"{type(error).__name__}: {error}"
+    return render_template("error.html", message=message), 500
 
 
 if __name__ == "__main__":
