@@ -13,6 +13,7 @@ import zipfile
 from datetime import datetime
 from html import unescape
 from pathlib import Path
+from urllib.parse import urlencode
 from xml.etree import ElementTree as ET
 
 import openai
@@ -2058,7 +2059,8 @@ def delete_uploads(job_id: str):
             JOBS[job_id]["saved_uploads"] = []
             JOBS[job_id]["uploads_deleted"] = True
     next_url = request.form.get("next") or url_for("job_status_page", job_id=job_id)
-    return redirect(next_url)
+    separator = "&" if "?" in next_url else "?"
+    return redirect(f"{next_url}{separator}{urlencode({'uploads_deleted': '1'})}")
 
 
 @app.get("/download/<path:filename>")

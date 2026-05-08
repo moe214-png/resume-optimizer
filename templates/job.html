@@ -128,6 +128,16 @@
             line-height: 1.6;
         }
 
+        .success {
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: #f1fbf4;
+            color: #17633a;
+            border: 1px solid #b7ebc6;
+            line-height: 1.6;
+        }
+
         .privacy {
             margin-top: 18px;
             padding: 12px 14px;
@@ -171,6 +181,9 @@
         </section>
 
         <div id="failed" class="failed"></div>
+        {% if request.args.get("uploads_deleted") %}
+            <div class="success">本次上传文件已删除。生成结果不受影响。</div>
+        {% endif %}
         <div id="notice" class="notice"></div>
         <div class="privacy">
             <p>原始上传文件会临时保存 {{ upload_ttl_minutes }} 分钟，便于排查生成问题。你可以随时删除本次上传文件。</p>

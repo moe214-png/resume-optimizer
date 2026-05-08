@@ -106,6 +106,16 @@
             color: var(--danger);
         }
 
+        .success {
+            margin-bottom: 16px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: #f1fbf4;
+            color: #17633a;
+            border: 1px solid #b7ebc6;
+            line-height: 1.7;
+        }
+
         .empty {
             padding: 22px;
             border: 1px dashed var(--line);
@@ -135,6 +145,10 @@
                 <button type="submit">退出管理</button>
             </form>
         </section>
+
+        {% if request.args.get("uploads_deleted") %}
+            <section class="success">上传文件已删除。</section>
+        {% endif %}
 
         {% if not records %}
             <section class="empty">
