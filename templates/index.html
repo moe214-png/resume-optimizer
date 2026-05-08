@@ -144,6 +144,18 @@
             border: 1px solid #ffccc7;
         }
 
+        .notice {
+            display: none;
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: #fff7e6;
+            color: #8a4b00;
+            border: 1px solid #ffd591;
+            line-height: 1.7;
+        }
+
+        .notice.show { display: block; }
+
         button {
             width: fit-content;
             min-height: 44px;
@@ -281,7 +293,8 @@
             <div class="field">
                 <label for="resume">简历文件</label>
                 <input id="resume" type="file" name="resume" accept=".pdf,.docx" required>
-                <div class="hint">支持 PDF、DOCX，推荐上传原始 DOCX 以最大程度保持 Word 格式。</div>
+                <div class="hint">推荐上传原始 DOCX 以最大程度保持 Word 格式。PDF 只能提取文字后重新生成 Word，无法完整保留原排版。</div>
+                <div id="pdf_notice" class="notice">你选择的是 PDF 简历。PDF 会被重新生成成 Word，格式可能与原简历不同；如需保留版式，请上传原始 DOCX。</div>
             </div>
 
             <div class="grid">
@@ -360,6 +373,8 @@
         const progressBar = document.getElementById("progress_bar");
         const progressPercent = document.getElementById("progress_percent");
         const progressStep = document.getElementById("progress_step");
+        const resumeInput = document.getElementById("resume");
+        const pdfNotice = document.getElementById("pdf_notice");
 
         const progressSteps = [
             { percent: 8, text: "正在上传并读取文件..." },
@@ -378,6 +393,12 @@
         }
 
         if (optimizerForm) {
+            resumeInput.addEventListener("change", () => {
+                const file = resumeInput.files && resumeInput.files[0];
+                const isPdf = file && file.name.toLowerCase().endsWith(".pdf");
+                pdfNotice.classList.toggle("show", Boolean(isPdf));
+            });
+
             optimizerForm.addEventListener("submit", () => {
                 submitButton.disabled = true;
                 submitButton.textContent = "生成中...";

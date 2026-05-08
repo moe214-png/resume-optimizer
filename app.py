@@ -34,7 +34,8 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-08-background-jobs"
+APP_VERSION = "2026-05-08-pdf-format-warning"
+PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -1776,6 +1777,7 @@ def run_resume_job(job_id: str, payload: dict) -> None:
         job_desc = payload["job_desc"]
         target_role = payload["target_role"]
         style = payload["style"]
+        format_warning = PDF_FORMAT_WARNING if ext == "pdf" else ""
 
         original_docx_bytes = None
         original_paragraphs = []
@@ -1854,6 +1856,7 @@ def run_resume_job(job_id: str, payload: dict) -> None:
         result_context = {
             "optimized": display_text,
             "download": filename,
+            "format_warning": format_warning,
             "edit_count": len(changes),
             "changes": changes,
             "match_analysis": match_analysis,
@@ -1927,6 +1930,8 @@ def index():
         "achievement_text": achievement_text,
         "achievement_file_payloads": achievement_file_payloads,
     }
+    if original_filename.rsplit(".", 1)[-1].lower() == "pdf":
+        set_job_progress(job_id, 4, PDF_FORMAT_WARNING)
     worker = threading.Thread(target=run_resume_job, args=(job_id, payload), daemon=True)
     worker.start()
     return redirect(url_for("job_status_page", job_id=job_id))
