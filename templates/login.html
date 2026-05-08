@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>访问口令</title>
+    <title>{{ title or "访问口令" }}</title>
     <style>
         :root {
             --bg: #f6f7fb;
@@ -92,8 +92,8 @@
 </head>
 <body>
     <main>
-        <h1>访问口令</h1>
-        <p>请输入口令后继续使用简历优化工具。</p>
+        <h1>{{ title or "访问口令" }}</h1>
+        <p>{{ description or "请输入口令后继续使用简历优化工具。" }}</p>
         <form method="POST">
             {% if error %}
                 <div class="error">{{ error }}</div>

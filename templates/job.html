@@ -127,6 +127,31 @@
             border: 1px solid #ffd591;
             line-height: 1.6;
         }
+
+        .privacy {
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #fbfcfe;
+            line-height: 1.6;
+        }
+
+        .privacy form {
+            margin-top: 10px;
+        }
+
+        button {
+            min-height: 38px;
+            padding: 0 12px;
+            border-radius: 6px;
+            border: 1px solid #ffccc7;
+            background: #fff;
+            color: var(--danger);
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -147,6 +172,13 @@
 
         <div id="failed" class="failed"></div>
         <div id="notice" class="notice"></div>
+        <div class="privacy">
+            <p>原始上传文件会临时保存 {{ upload_ttl_minutes }} 分钟，便于排查生成问题。你可以随时删除本次上传文件。</p>
+            <form action="/jobs/{{ job_id }}/uploads/delete" method="POST">
+                <input type="hidden" name="next" value="/jobs/{{ job_id }}">
+                <button type="submit">删除本次上传文件</button>
+            </form>
+        </div>
 
         <div class="actions">
             <a id="result_link" class="primary" href="#">查看结果并下载 Word</a>

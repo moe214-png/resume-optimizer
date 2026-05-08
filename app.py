@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import threading
 import traceback
 import uuid
@@ -26,6 +27,7 @@ app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "static"
+UPLOAD_DIR = BASE_DIR / "uploads"
 ALLOWED_EXTENSIONS = {"pdf", "docx"}
 SUPPORT_EXTENSIONS = {"pdf", "docx", "pptx", "txt", "md", "csv", "json", "html", "htm"}
 IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"}
@@ -34,8 +36,10 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-08-pdf-format-warning"
+APP_VERSION = "2026-05-09-upload-retention"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
+UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
 JOBS: dict[str, dict] = {}
 JOBS_LOCK = threading.Lock()
 
@@ -77,6 +81,19 @@ def cleanup_old_outputs() -> None:
             continue
 
 
+def cleanup_old_uploads() -> None:
+    if UPLOAD_TTL_SECONDS <= 0 or not UPLOAD_DIR.exists():
+        return
+
+    cutoff = datetime.now().timestamp() - UPLOAD_TTL_SECONDS
+    for path in UPLOAD_DIR.iterdir():
+        try:
+            if path.is_dir() and path.stat().st_mtime < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+        except OSError:
+            continue
+
+
 def password_enabled() -> bool:
     return bool(APP_PASSWORD)
 
@@ -113,9 +130,64 @@ def get_job(job_id: str) -> dict | None:
         return dict(job) if job else None
 
 
+def admin_enabled() -> bool:
+    return bool(ADMIN_PASSWORD)
+
+
+def is_admin_authenticated() -> bool:
+    return admin_enabled() and session.get("admin_authenticated") is True
+
+
+def require_admin():
+    if not admin_enabled():
+        return render_template("error.html", message="管理功能未启用。请先在 Railway 设置 ADMIN_PASSWORD。"), 404
+    if not is_admin_authenticated():
+        return redirect(url_for("admin_login", next=request.path))
+    return None
+
+
+def save_upload_file(job_id: str, field: str, filename: str, data: bytes) -> str:
+    safe_name = secure_filename(filename) or f"{field}.bin"
+    target_dir = UPLOAD_DIR / job_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{field}_{safe_name}"
+    target.write_bytes(data)
+    return str(target.relative_to(BASE_DIR))
+
+
+def upload_records() -> list[dict]:
+    if not UPLOAD_DIR.exists():
+        return []
+
+    records = []
+    for job_dir in sorted(UPLOAD_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not job_dir.is_dir():
+            continue
+        files = []
+        for path in sorted(job_dir.iterdir()):
+            if path.is_file():
+                files.append(
+                    {
+                        "name": path.name,
+                        "size": path.stat().st_size,
+                        "download_url": url_for("admin_download_upload", job_id=job_dir.name, filename=path.name),
+                    }
+                )
+        records.append(
+            {
+                "job_id": job_dir.name,
+                "updated_at": datetime.fromtimestamp(job_dir.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
+                "files": files,
+                "delete_url": url_for("delete_uploads", job_id=job_dir.name),
+            }
+        )
+    return records
+
+
 @app.before_request
 def run_request_maintenance():
     cleanup_old_outputs()
+    cleanup_old_uploads()
     return None
 
 
@@ -1857,6 +1929,8 @@ def run_resume_job(job_id: str, payload: dict) -> None:
             "optimized": display_text,
             "download": filename,
             "format_warning": format_warning,
+            "job_id": job_id,
+            "upload_retention_notice": f"原始上传文件会临时保存 {UPLOAD_TTL_SECONDS // 60} 分钟，可在本页删除。",
             "edit_count": len(changes),
             "changes": changes,
             "match_analysis": match_analysis,
@@ -1907,17 +1981,21 @@ def index():
 
     original_filename = secure_filename(resume_file.filename)
     resume_data = resume_file.read()
+    job_id = uuid.uuid4().hex
+    saved_uploads = [save_upload_file(job_id, "resume", original_filename, resume_data)]
     achievement_file_payloads = [
         {"filename": file.filename, "data": file.read()}
         for file in request.files.getlist("achievement_files")
         if file and file.filename
     ]
-    job_id = uuid.uuid4().hex
+    for index, payload_item in enumerate(achievement_file_payloads, start=1):
+        saved_uploads.append(save_upload_file(job_id, f"achievement_{index}", payload_item["filename"], payload_item["data"]))
     with JOBS_LOCK:
         JOBS[job_id] = {
             "status": "running",
             "percent": 3,
             "message": "任务已创建，正在准备生成...",
+            "saved_uploads": saved_uploads,
             "created_at": datetime.now().isoformat(timespec="seconds"),
             "updated_at": datetime.now().isoformat(timespec="seconds"),
         }
@@ -1941,7 +2019,7 @@ def index():
 def job_status_page(job_id: str):
     if not get_job(job_id):
         return render_template("error.html", message="任务不存在或已过期，请重新提交。"), 404
-    return render_template("job.html", job_id=job_id)
+    return render_template("job.html", job_id=job_id, upload_ttl_minutes=UPLOAD_TTL_SECONDS // 60)
 
 
 @app.get("/jobs/<job_id>/status")
@@ -1954,6 +2032,8 @@ def job_status(job_id: str):
         "percent": job.get("percent", 0),
         "message": job.get("message", ""),
         "result_url": url_for("job_result", job_id=job_id) if job.get("status") == "done" else "",
+        "delete_uploads_url": url_for("delete_uploads", job_id=job_id),
+        "uploads_saved": bool(job.get("saved_uploads")),
         "error": job.get("error", ""),
     }
 
@@ -1970,6 +2050,17 @@ def job_result(job_id: str):
     return render_template("result.html", **job.get("result", {}))
 
 
+@app.post("/jobs/<job_id>/uploads/delete")
+def delete_uploads(job_id: str):
+    shutil.rmtree(UPLOAD_DIR / secure_filename(job_id), ignore_errors=True)
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id]["saved_uploads"] = []
+            JOBS[job_id]["uploads_deleted"] = True
+    next_url = request.form.get("next") or url_for("job_status_page", job_id=job_id)
+    return redirect(next_url)
+
+
 @app.get("/download/<path:filename>")
 def download_file(filename: str):
     safe_name = secure_filename(filename)
@@ -1982,6 +2073,51 @@ def download_file(filename: str):
         mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         download_name=safe_name,
     )
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    if not admin_enabled():
+        return render_template("error.html", message="管理功能未启用。请先在 Railway 设置 ADMIN_PASSWORD。"), 404
+
+    error = ""
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if secrets.compare_digest(password, ADMIN_PASSWORD):
+            session["admin_authenticated"] = True
+            return redirect(request.args.get("next") or url_for("admin_uploads"))
+        error = "管理员口令不正确，请重试。"
+    return render_template("login.html", error=error, title="管理员口令", description="请输入管理员口令查看临时上传文件。")
+
+
+@app.post("/admin/logout")
+def admin_logout():
+    session.pop("admin_authenticated", None)
+    return redirect(url_for("admin_login"))
+
+
+@app.get("/admin/uploads")
+def admin_uploads():
+    auth_response = require_admin()
+    if auth_response:
+        return auth_response
+    return render_template(
+        "admin_uploads.html",
+        records=upload_records(),
+        ttl_minutes=UPLOAD_TTL_SECONDS // 60,
+    )
+
+
+@app.get("/admin/uploads/<job_id>/<path:filename>")
+def admin_download_upload(job_id: str, filename: str):
+    auth_response = require_admin()
+    if auth_response:
+        return auth_response
+    safe_job_id = secure_filename(job_id)
+    safe_name = secure_filename(filename)
+    if safe_job_id != job_id or safe_name != filename:
+        return render_template("error.html", message="文件名无效。"), 404
+    return send_from_directory(UPLOAD_DIR / safe_job_id, safe_name, as_attachment=True, download_name=safe_name)
 
 
 @app.errorhandler(413)

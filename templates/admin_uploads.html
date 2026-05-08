@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>临时上传文件</title>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --text: #20242c;
+            --muted: #657084;
+            --line: #dce1ea;
+            --primary: #1f7a63;
+            --danger: #b42318;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        main {
+            width: min(960px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 44px 0;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            gap: 16px;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 30px;
+            letter-spacing: 0;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .record {
+            margin-top: 16px;
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+            box-shadow: 0 18px 45px rgba(32, 36, 44, 0.08);
+        }
+
+        .record-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .job-id {
+            font-weight: 700;
+            overflow-wrap: anywhere;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 18px;
+            line-height: 1.9;
+        }
+
+        a,
+        button {
+            display: inline-flex;
+            align-items: center;
+            min-height: 38px;
+            padding: 0 12px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+            text-decoration: none;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        a.primary {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        button.danger {
+            border-color: #ffccc7;
+            color: var(--danger);
+        }
+
+        .empty {
+            padding: 22px;
+            border: 1px dashed var(--line);
+            border-radius: 8px;
+            background: var(--panel);
+        }
+
+        form { margin: 0; }
+
+        @media (max-width: 720px) {
+            .topbar,
+            .record-head {
+                display: grid;
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <section class="topbar">
+            <div>
+                <h1>临时上传文件</h1>
+                <p>上传文件默认临时保存 {{ ttl_minutes }} 分钟。仅用于排查生成问题，请及时删除不需要保留的文件。</p>
+            </div>
+            <form action="/admin/logout" method="POST">
+                <button type="submit">退出管理</button>
+            </form>
+        </section>
+
+        {% if not records %}
+            <section class="empty">
+                <p>当前没有临时保存的上传文件。</p>
+            </section>
+        {% endif %}
+
+        {% for record in records %}
+            <section class="record">
+                <div class="record-head">
+                    <div>
+                        <div class="job-id">任务 {{ record.job_id }}</div>
+                        <p>更新时间：{{ record.updated_at }}</p>
+                    </div>
+                    <form action="{{ record.delete_url }}" method="POST">
+                        <input type="hidden" name="next" value="/admin/uploads">
+                        <button class="danger" type="submit">删除本任务上传</button>
+                    </form>
+                </div>
+                <ul>
+                    {% for file in record.files %}
+                        <li>
+                            <a class="primary" href="{{ file.download_url }}">下载 {{ file.name }}</a>
+                            <span>{{ (file.size / 1024) | round(1) }} KB</span>
+                        </li>
+                    {% endfor %}
+                </ul>
+            </section>
+        {% endfor %}
+    </main>
+</body>
+</html>

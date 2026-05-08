@@ -9,6 +9,7 @@ __pycache__/
 static/*.docx
 static/optimized_resume_*.docx
 static/debug_real_resume_output.docx
+uploads/
 
 # Local/private test files
 test_input.docx
