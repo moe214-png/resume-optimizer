@@ -80,19 +80,14 @@ def is_authenticated() -> bool:
 
 def render_index(**context):
     context.setdefault("password_enabled", password_enabled())
+    context.setdefault("is_authenticated", is_authenticated())
     return render_template("index.html", **context)
 
 
 @app.before_request
-def require_password():
+def run_request_maintenance():
     cleanup_old_outputs()
-    if not password_enabled():
-        return None
-    if request.endpoint in {"login", "static", "health"}:
-        return None
-    if is_authenticated():
-        return None
-    return redirect(url_for("login", next=request.path))
+    return None
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -113,7 +108,7 @@ def login():
 @app.post("/logout")
 def logout():
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("index"))
 
 
 def allowed_file(filename: str) -> bool:
@@ -1728,6 +1723,15 @@ def index():
     target_role = request.form.get("target_role", "").strip()
     style = request.form.get("style", "professional")
     achievement_text = request.form.get("achievement_text", "").strip()
+
+    if password_enabled() and not is_authenticated():
+        password = request.form.get("password", "")
+        if not secrets.compare_digest(password, APP_PASSWORD):
+            return render_index(
+                error="生成优化前请输入正确口令。",
+                form=request.form,
+            ), 401
+        session["authenticated"] = True
 
     if not resume_file or not resume_file.filename:
         return render_index(error="请上传一份 PDF 或 DOCX 简历。")

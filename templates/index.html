@@ -218,7 +218,7 @@
         <section class="header">
             <h1>简历优化工具</h1>
             <p class="subtitle">上传简历、岗位描述和过往成果材料，AI 会识别可补充信息，结合岗位匹配度生成新版 Word 简历。</p>
-            {% if password_enabled %}
+            {% if password_enabled and is_authenticated %}
                 <form action="/logout" method="POST" class="logout-form">
                     <button class="secondary" type="submit">退出登录</button>
                 </form>
@@ -281,6 +281,14 @@
                     <div class="hint">AI 只会使用这里或上传文件中真实出现的信息，不会编造数据。</div>
                 </div>
             </section>
+
+            {% if password_enabled and not is_authenticated %}
+                <div class="field">
+                    <label for="password">生成口令</label>
+                    <input id="password" type="password" name="password" autocomplete="current-password" placeholder="输入口令后生成优化结果" required>
+                    <div class="hint">打开页面不需要口令，只有提交生成时会校验。</div>
+                </div>
+            {% endif %}
 
             <button type="submit">生成优化简历</button>
         </form>
