@@ -1645,7 +1645,7 @@ def analyze_achievement_materials(
     if not material_text:
         return {"summary": "过往成果材料未读取到有效文本。", "items": []}
 
-    if not openai.api_key:
+    if os.getenv("USE_AI_ACHIEVEMENT_ANALYSIS", "").strip() != "1" or not openai.api_key:
         return local_achievement_analysis(materials, job_desc)
     job_profile_text = format_job_profile_for_prompt(job_profile)
 
@@ -1806,7 +1806,12 @@ def index():
     change_originals = original_paragraphs if original_docx_bytes else resume_text.splitlines()
     changes = build_change_log(change_originals, optimized_paragraphs)
     display_text = "\n".join(item.get("text", "") for item in optimized_paragraphs)
-    optimized_match_analysis = analyze_resume_match(display_text, job_desc, target_role, job_profile)
+    if os.getenv("ANALYZE_OPTIMIZED_MATCH", "").strip() == "1":
+        optimized_match_analysis = analyze_resume_match(display_text, job_desc, target_role, job_profile)
+    else:
+        optimized_match_analysis = dict(original_match_analysis)
+        optimized_match_analysis["summary"] = "已完成简历生成。为提升线上稳定性，本次跳过优化后二次 AI 匹配评估。"
+        optimized_match_analysis["analysis_error"] = "已跳过优化后二次 AI 匹配评估。"
     match_analysis = original_match_analysis
     optimization_diagnosis = build_optimization_diagnosis(
         change_originals,
