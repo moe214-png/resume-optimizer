@@ -17,7 +17,7 @@ from xml.etree import ElementTree as ET
 import openai
 import PyPDF2
 from docx import Document
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
@@ -1963,6 +1963,20 @@ def job_result(job_id: str):
     if job.get("status") != "done":
         return redirect(url_for("job_status_page", job_id=job_id))
     return render_template("result.html", **job.get("result", {}))
+
+
+@app.get("/download/<path:filename>")
+def download_file(filename: str):
+    safe_name = secure_filename(filename)
+    if safe_name != filename or not safe_name.startswith("optimized_resume_") or not safe_name.endswith(".docx"):
+        return render_template("error.html", message="下载文件不存在或文件名无效。"), 404
+    return send_from_directory(
+        OUTPUT_DIR,
+        safe_name,
+        as_attachment=True,
+        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        download_name=safe_name,
+    )
 
 
 @app.errorhandler(413)

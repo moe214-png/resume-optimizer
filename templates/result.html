@@ -276,12 +276,12 @@
             <div>
                 <h1>优化结果</h1>
                 <p class="meta">
-                    共修改 {{ edit_count }} 个段落。下载的 Word 保持原格式，修改位置、原因和岗位匹配度在这里查看。
+                    共修改 {{ edit_count }} 个段落。请下载 Word 原文件后用 Microsoft Word 或 WPS 打开；手机浏览器直接预览可能会重排版式。
                     {% if not used_ai %}当前未配置 DeepSeek API Key，结果来自本地规则建议。{% endif %}
                 </p>
             </div>
             <div class="actions">
-                <a class="primary" href="/static/{{ download }}">下载 Word</a>
+                <a class="primary" href="/download/{{ download }}">下载 Word</a>
                 <a href="/">继续优化</a>
             </div>
         </section>
