@@ -1,0 +1,20 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Generated outputs
+static/*.docx
+static/optimized_resume_*.docx
+static/debug_real_resume_output.docx
+
+# Local/private test files
+test_input.docx
+debug_real_resume.py
+process_real.py
+process_real_chunked.py
+quick_test.py
+run_test.py
+【达人运营】郭楚妍-内容运营-13602220355.docx

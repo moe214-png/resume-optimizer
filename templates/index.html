@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>简历优化工具</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --text: #20242c;
+            --muted: #657084;
+            --line: #dce1ea;
+            --primary: #1f7a63;
+            --primary-dark: #16634f;
+            --danger-bg: #fff1f0;
+            --danger: #b42318;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        main {
+            width: min(980px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 48px 0;
+        }
+
+        .header { margin-bottom: 24px; }
+
+        .logout-form {
+            margin-top: 14px;
+            padding: 0;
+            background: transparent;
+            border: 0;
+            box-shadow: none;
+            display: block;
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 32px;
+            letter-spacing: 0;
+        }
+
+        .subtitle {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        form {
+            display: grid;
+            gap: 20px;
+            padding: 28px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: 0 18px 45px rgba(32, 36, 44, 0.08);
+        }
+
+        .field {
+            display: grid;
+            gap: 8px;
+        }
+
+        label { font-weight: 700; }
+
+        .inline-field {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: end;
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        textarea,
+        select {
+            width: 100%;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--text);
+            font: inherit;
+        }
+
+        input[type="text"],
+        input[type="file"],
+        select {
+            min-height: 44px;
+            padding: 10px 12px;
+        }
+
+        textarea {
+            min-height: 180px;
+            resize: vertical;
+            padding: 12px;
+            line-height: 1.6;
+        }
+
+        #job_desc { min-height: 220px; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 220px;
+            gap: 16px;
+        }
+
+        .block {
+            padding: 18px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fbfcfe;
+            display: grid;
+            gap: 16px;
+        }
+
+        .block-title {
+            margin: 0;
+            font-size: 18px;
+            letter-spacing: 0;
+        }
+
+        .error {
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #ffccc7;
+        }
+
+        button {
+            width: fit-content;
+            min-height: 44px;
+            padding: 0 20px;
+            border: 0;
+            border-radius: 6px;
+            background: var(--primary);
+            color: #fff;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button:hover { background: var(--primary-dark); }
+
+        button.secondary {
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
+        }
+
+        button.secondary:hover { background: #eef2f7; }
+
+        button:disabled {
+            cursor: wait;
+            opacity: 0.68;
+        }
+
+        .status {
+            display: none;
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--muted);
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        .status.show { display: block; }
+
+        .status.ok {
+            border-color: #b7ebc6;
+            background: #f1fbf4;
+            color: #17633a;
+        }
+
+        .status.error {
+            border-color: #ffccc7;
+            background: var(--danger-bg);
+            color: var(--danger);
+        }
+
+        @media (max-width: 720px) {
+            main {
+                width: min(100% - 24px, 980px);
+                padding: 28px 0;
+            }
+
+            form { padding: 20px; }
+
+            .grid { grid-template-columns: 1fr; }
+
+            .inline-field { grid-template-columns: 1fr; }
+
+            h1 { font-size: 26px; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <section class="header">
+            <h1>简历优化工具</h1>
+            <p class="subtitle">上传简历、岗位描述和过往成果材料，AI 会识别可补充信息，结合岗位匹配度生成新版 Word 简历。</p>
+            {% if password_enabled %}
+                <form action="/logout" method="POST" class="logout-form">
+                    <button class="secondary" type="submit">退出登录</button>
+                </form>
+            {% endif %}
+        </section>
+
+        <form method="POST" enctype="multipart/form-data">
+            {% if error %}
+                <div class="error">{{ error }}</div>
+            {% endif %}
+
+            <div class="field">
+                <label for="resume">简历文件</label>
+                <input id="resume" type="file" name="resume" accept=".pdf,.docx" required>
+                <div class="hint">支持 PDF、DOCX，推荐上传原始 DOCX 以最大程度保持 Word 格式。</div>
+            </div>
+
+            <div class="grid">
+                <div class="field">
+                    <label for="target_role">目标岗位</label>
+                    <input id="target_role" type="text" name="target_role" placeholder="例如：游戏创作者运营、内容运营、产品经理">
+                </div>
+
+                <div class="field">
+                    <label for="style">优化风格</label>
+                    <select id="style" name="style">
+                        <option value="professional">专业清晰</option>
+                        <option value="concise">简洁克制</option>
+                        <option value="impact">突出成果</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="job_desc">岗位描述</label>
+                <div class="field">
+                    <label for="job_file">上传岗位页面或 JD 文件</label>
+                    <input id="job_file" type="file" name="job_file" accept=".html,.htm,.txt,.md,.json,.pdf,.docx,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff">
+                    <div class="hint">适合已登录后才能看到 JD 的页面：可在浏览器中另存为 HTML，或把岗位正文复制到 TXT/PDF/DOCX 后上传。截图或图片型 PDF 需要安装 OCR 依赖后才能自动识别。</div>
+                </div>
+                <textarea id="job_desc" name="job_desc" placeholder="粘贴 JD、任职要求、岗位关键词或招聘页面正文...">{{ form.get('job_desc', '') if form else '' }}</textarea>
+                <div class="hint">内容越具体，AI 越能判断哪些经历和成果值得补进简历。</div>
+            </div>
+
+            <section class="block">
+                <div>
+                    <h2 class="block-title">过往工作成果补充</h2>
+                    <p class="hint">可选。可以一次选择多份复盘、周报、项目总结、作品说明、数据记录等材料，AI 会综合筛选与岗位匹配的内容补进简历。</p>
+                </div>
+
+                <div class="field">
+                    <label for="achievement_files">上传成果材料（可多选）</label>
+                    <input id="achievement_files" type="file" name="achievement_files" accept=".pdf,.docx,.pptx,.txt,.md,.csv,.json,.html,.htm" multiple>
+                    <div class="hint">支持 PDF、DOCX、PPTX、TXT、MD、CSV、JSON、HTML。按住 Ctrl 或 Shift 可以一次选择多个文件；总大小不超过 40MB。暂不支持图片扫描件、Excel 和老式 DOC/PPT。</div>
+                </div>
+
+                <div class="field">
+                    <label for="achievement_text">粘贴成果补充</label>
+                    <textarea id="achievement_text" name="achievement_text" placeholder="也可以直接粘贴项目成果、复盘片段、运营数据、获奖记录、案例说明等..."></textarea>
+                    <div class="hint">AI 只会使用这里或上传文件中真实出现的信息，不会编造数据。</div>
+                </div>
+            </section>
+
+            <button type="submit">生成优化简历</button>
+        </form>
+    </main>
+</body>
+</html>

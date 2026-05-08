@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>优化结果</title>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --text: #20242c;
+            --muted: #657084;
+            --line: #dce1ea;
+            --primary: #1f7a63;
+            --primary-dark: #16634f;
+            --before: #fff5f5;
+            --after: #effaf5;
+            --score: #eef6ff;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        main {
+            width: min(1120px, calc(100% - 32px));
+            margin: 0 auto;
+            padding: 44px 0;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 30px;
+            letter-spacing: 0;
+        }
+
+        h2 {
+            margin: 0 0 14px;
+            font-size: 20px;
+            letter-spacing: 0;
+        }
+
+        h3 {
+            margin: 0 0 8px;
+            font-size: 15px;
+            letter-spacing: 0;
+        }
+
+        .meta {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        a {
+            display: inline-flex;
+            align-items: center;
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            color: var(--text);
+            background: #fff;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        a.primary {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        a.primary:hover { background: var(--primary-dark); }
+
+        .section {
+            margin-top: 18px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 24px;
+            box-shadow: 0 18px 45px rgba(32, 36, 44, 0.08);
+        }
+
+        .analysis {
+            display: grid;
+            grid-template-columns: 190px 1fr;
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .score-card {
+            display: grid;
+            place-items: center;
+            min-height: 150px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--score);
+            text-align: center;
+        }
+
+        .score {
+            font-size: 48px;
+            font-weight: 800;
+            color: var(--primary-dark);
+            line-height: 1;
+        }
+
+        .score-label {
+            margin-top: 8px;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        .analysis-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .mini {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 14px;
+            background: #fff;
+        }
+
+        .warning {
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: #fff7e6;
+            color: #8a4b00;
+            border: 1px solid #ffd591;
+            line-height: 1.7;
+        }
+
+        ul {
+            margin: 0;
+            padding-left: 18px;
+            line-height: 1.7;
+        }
+
+        .change-list {
+            display: grid;
+            gap: 16px;
+        }
+
+        .change {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            overflow: hidden;
+            background: #fff;
+        }
+
+        .change-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .compare {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+        }
+
+        .box {
+            padding: 14px;
+            line-height: 1.75;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+
+        .box.before {
+            background: var(--before);
+            border-right: 1px solid var(--line);
+        }
+
+        .box.after { background: var(--after); }
+
+        .label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        .reason {
+            padding: 12px 14px;
+            border-top: 1px solid var(--line);
+            line-height: 1.7;
+        }
+
+        .detail-list {
+            display: grid;
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .detail {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 16px;
+            background: #fff;
+        }
+
+        .detail p {
+            margin: 8px 0 0;
+            line-height: 1.7;
+        }
+
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-family: "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 15px;
+            line-height: 1.8;
+        }
+
+        @media (max-width: 840px) {
+            main {
+                width: min(100% - 24px, 1120px);
+                padding: 28px 0;
+            }
+
+            .topbar,
+            .analysis {
+                display: grid;
+                grid-template-columns: 1fr;
+            }
+
+            .analysis-grid,
+            .compare {
+                grid-template-columns: 1fr;
+            }
+
+            .box.before {
+                border-right: 0;
+                border-bottom: 1px solid var(--line);
+            }
+
+            h1 { font-size: 26px; }
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <section class="topbar">
+            <div>
+                <h1>优化结果</h1>
+                <p class="meta">
+                    共修改 {{ edit_count }} 个段落。下载的 Word 保持原格式，修改位置、原因和岗位匹配度在这里查看。
+                    {% if not used_ai %}当前未配置 DeepSeek API Key，结果来自本地规则建议。{% endif %}
+                </p>
+            </div>
+            <div class="actions">
+                <a class="primary" href="/static/{{ download }}">下载 Word</a>
+                <a href="/">继续优化</a>
+            </div>
+        </section>
+
+        {% if job_profile.analysis_error or match_analysis.analysis_error %}
+            <section class="section">
+                <h2>分析状态</h2>
+                {% if job_profile.analysis_error %}
+                    <p class="warning">{{ job_profile.analysis_error }}</p>
+                {% endif %}
+                {% if match_analysis.analysis_error %}
+                    <p class="warning">{{ match_analysis.analysis_error }}</p>
+                {% endif %}
+            </section>
+        {% endif %}
+
+        <section class="section">
+            <h2>岗位匹配度</h2>
+            <div class="analysis">
+                <div class="score-card">
+                    <div>
+                        <div class="score">{{ match_analysis.score }}</div>
+                        <div class="score-label">匹配分 / 100</div>
+                    </div>
+                </div>
+                <div>
+                    <p class="meta">{{ match_analysis.summary }}</p>
+                    {% if match_analysis.role_reading %}
+                        <p class="meta"><strong>岗位解读：</strong>{{ match_analysis.role_reading }}</p>
+                    {% endif %}
+                    {% if match_analysis.fit_logic %}
+                        <p class="meta"><strong>评分逻辑：</strong>{{ match_analysis.fit_logic }}</p>
+                    {% endif %}
+                    {% if optimized_match_analysis %}
+                        <p class="meta">
+                            当前主评分基于原始简历与岗位 JD；优化后预估匹配分为 {{ optimized_match_analysis.score }}/100。
+                        </p>
+                    {% endif %}
+                    <div class="analysis-grid">
+                        <div class="mini">
+                            <h3>匹配优势</h3>
+                            <ul>
+                                {% for item in match_analysis.strengths %}
+                                    <li>{{ item }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="mini">
+                            <h3>主要短板</h3>
+                            <ul>
+                                {% for item in match_analysis.gaps %}
+                                    <li>{{ item }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                        <div class="mini">
+                            <h3>后续建议</h3>
+                            <ul>
+                                {% for item in match_analysis.suggestions %}
+                                    <li>{{ item }}</li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        {% if match_analysis.mismatch_details %}
+            <section class="section">
+                <h2>具体不匹配诊断</h2>
+                <p class="meta">下面只列会影响筛选判断的关键差距，并给出可以用真实材料补充的方向。</p>
+                <div class="detail-list">
+                    {% for item in match_analysis.mismatch_details %}
+                        <article class="detail">
+                            <h3>{{ loop.index }}. {{ item.requirement }}</h3>
+                            {% if item.resume_evidence %}
+                                <p><strong>简历现有证据：</strong>{{ item.resume_evidence }}</p>
+                            {% endif %}
+                            {% if item.gap %}
+                                <p><strong>差距判断：</strong>{{ item.gap }}</p>
+                            {% endif %}
+                            {% if item.impact %}
+                                <p><strong>筛选影响：</strong>{{ item.impact }}</p>
+                            {% endif %}
+                            {% if item.action %}
+                                <p><strong>建议补充：</strong>{{ item.action }}</p>
+                            {% endif %}
+                        </article>
+                    {% endfor %}
+                </div>
+            </section>
+        {% endif %}
+
+        <section class="section">
+            <h2>岗位理解</h2>
+            <p class="meta">{{ job_profile.role_summary }}</p>
+            <div class="analysis-grid">
+                <div class="mini">
+                    <h3>业务问题</h3>
+                    <p class="meta">{{ job_profile.business_problem }}</p>
+                </div>
+                <div class="mini">
+                    <h3>理想候选人</h3>
+                    <p class="meta">{{ job_profile.ideal_candidate }}</p>
+                </div>
+                <div class="mini">
+                    <h3>核心任务</h3>
+                    <ul>
+                        {% for item in job_profile.core_tasks %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>硬性能力</h3>
+                    <ul>
+                        {% for item in job_profile.must_haves %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>证据要求</h3>
+                    <ul>
+                        {% for item in job_profile.evidence_requirements %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>可迁移能力</h3>
+                    <ul>
+                        {% for item in job_profile.transferable_abilities %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>硬门槛</h3>
+                    <ul>
+                        {% for item in job_profile.hard_gates %}
+                            <li>{{ item }}</li>
+                        {% else %}
+                            <li>未识别到明确不可迁移的硬门槛。</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>改写策略</h3>
+                    <p class="meta">{{ job_profile.resume_strategy }}</p>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>改动诊断</h2>
+            <p class="meta">
+                本次识别到 {{ optimization_diagnosis.candidate_count }} 个适合改写的正文段落，
+                实际改写 {{ optimization_diagnosis.changed_count }} 个段落；
+                原始简历岗位匹配分 {{ optimization_diagnosis.match_score }}/100。
+                {% if optimization_diagnosis.format_protected_count %}
+                    另有 {{ optimization_diagnosis.format_protected_count }} 个建议因 Word 格式保护被跳过。
+                {% endif %}
+            </p>
+            <div class="analysis-grid">
+                <div class="mini">
+                    <h3>原因说明</h3>
+                    <ul>
+                        {% for item in optimization_diagnosis.reasons %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>不匹配点</h3>
+                    <ul>
+                        {% for item in match_analysis.gaps %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div class="mini">
+                    <h3>下一步建议</h3>
+                    <ul>
+                        {% for item in optimization_diagnosis.next_steps %}
+                            <li>{{ item }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="section">
+            <h2>成果材料识别</h2>
+            <p class="meta">本次读取 {{ material_count }} 份补充材料。</p>
+            {% if material_errors %}
+                <p class="meta">
+                    {% for error in material_errors %}
+                        {{ error }}{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                </p>
+            {% endif %}
+            <p class="meta">{{ achievement_analysis.summary }}</p>
+            {% if achievement_analysis["items"] %}
+                <div class="analysis-grid">
+                    {% for item in achievement_analysis["items"] %}
+                        <div class="mini">
+                            <h3>可补充成果 {{ loop.index }} · {{ item.confidence }}</h3>
+                            <p class="meta"><strong>证据：</strong>{{ item.evidence }}</p>
+                            <p class="meta"><strong>匹配原因：</strong>{{ item.relevance }}</p>
+                            <p class="meta"><strong>建议用法：</strong>{{ item.suggested_use }}</p>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="meta">未识别到可直接补进简历的成果材料。可以上传更具体的项目复盘、数据记录或案例说明。</p>
+            {% endif %}
+        </section>
+
+        <section class="section">
+            <h2>修改清单</h2>
+            {% if changes %}
+                <div class="change-list">
+                    {% for change in changes %}
+                        <article class="change">
+                            <div class="change-head">
+                                <span>段落 {{ change.paragraph_index }}</span>
+                                <span>{{ change.before_len }} 字 -> {{ change.after_len }} 字</span>
+                            </div>
+                            <div class="compare">
+                                <div class="box before">
+                                    <span class="label">原文</span>{{ change.before }}
+                                </div>
+                                <div class="box after">
+                                    <span class="label">优化后</span>{{ change.after }}
+                                </div>
+                            </div>
+                            <div class="reason">
+                                <span class="label">优化原因</span>{{ change.reason }}
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <p class="meta">这次没有写入可展示的修改。可能是 AI 判断原文已经较贴合，或修改被格式保护规则拦截。</p>
+            {% endif %}
+        </section>
+
+        <section class="section">
+            <h2>优化后全文</h2>
+            <pre>{{ optimized }}</pre>
+        </section>
+    </main>
+</body>
+</html>
