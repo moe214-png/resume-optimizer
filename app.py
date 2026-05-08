@@ -88,7 +88,7 @@ def require_password():
     cleanup_old_outputs()
     if not password_enabled():
         return None
-    if request.endpoint in {"login", "static"}:
+    if request.endpoint in {"login", "static", "health"}:
         return None
     if is_authenticated():
         return None
