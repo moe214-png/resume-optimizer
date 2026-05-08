@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>正在生成</title>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --text: #20242c;
+            --muted: #657084;
+            --line: #dce1ea;
+            --primary: #1f7a63;
+            --primary-dark: #16634f;
+            --danger-bg: #fff1f0;
+            --danger: #b42318;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+        }
+
+        main {
+            width: min(620px, calc(100% - 32px));
+            padding: 30px;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            box-shadow: 0 18px 45px rgba(32, 36, 44, 0.08);
+        }
+
+        h1 {
+            margin: 0 0 10px;
+            font-size: 28px;
+            letter-spacing: 0;
+        }
+
+        p {
+            margin: 0;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .progress {
+            display: grid;
+            gap: 14px;
+            margin: 24px 0;
+        }
+
+        .progress-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-weight: 700;
+        }
+
+        .track {
+            height: 12px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: #d9e7f2;
+        }
+
+        .bar {
+            width: 3%;
+            height: 100%;
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--primary), #2f8fb8);
+            transition: width 650ms ease;
+        }
+
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        a {
+            display: none;
+            align-items: center;
+            min-height: 42px;
+            padding: 0 16px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            color: var(--text);
+            background: #fff;
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        a.primary {
+            border-color: var(--primary);
+            background: var(--primary);
+            color: #fff;
+        }
+
+        a.primary:hover { background: var(--primary-dark); }
+
+        .failed {
+            display: none;
+            margin-top: 18px;
+            padding: 12px 14px;
+            border-radius: 6px;
+            background: var(--danger-bg);
+            color: var(--danger);
+            border: 1px solid #ffccc7;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>正在生成优化简历</h1>
+        <p>任务已经在后台运行。这个页面会自动刷新进度，完成后出现查看结果按钮。</p>
+
+        <section class="progress" aria-live="polite">
+            <div class="progress-head">
+                <span id="message">任务已创建，正在准备生成...</span>
+                <span id="percent">3%</span>
+            </div>
+            <div class="track" aria-hidden="true">
+                <div id="bar" class="bar"></div>
+            </div>
+            <p>DeepSeek 响应慢时可能需要几分钟，请保持页面打开。</p>
+        </section>
+
+        <div id="failed" class="failed"></div>
+
+        <div class="actions">
+            <a id="result_link" class="primary" href="#">查看结果并下载 Word</a>
+            <a id="retry_link" href="/">重新提交</a>
+        </div>
+    </main>
+    <script>
+        const jobId = "{{ job_id }}";
+        const messageEl = document.getElementById("message");
+        const percentEl = document.getElementById("percent");
+        const barEl = document.getElementById("bar");
+        const resultLink = document.getElementById("result_link");
+        const retryLink = document.getElementById("retry_link");
+        const failedEl = document.getElementById("failed");
+
+        async function pollStatus() {
+            try {
+                const response = await fetch(`/jobs/${jobId}/status`, { cache: "no-store" });
+                const data = await response.json();
+                const percent = Math.max(0, Math.min(100, Number(data.percent || 0)));
+                messageEl.textContent = data.message || "正在生成...";
+                percentEl.textContent = `${percent}%`;
+                barEl.style.width = `${percent}%`;
+
+                if (data.status === "done") {
+                    resultLink.href = data.result_url;
+                    resultLink.style.display = "inline-flex";
+                    retryLink.style.display = "inline-flex";
+                    window.clearInterval(window.statusTimer);
+                    return;
+                }
+
+                if (data.status === "failed" || data.status === "missing") {
+                    failedEl.textContent = data.error || data.message || "生成失败，请重新提交。";
+                    failedEl.style.display = "block";
+                    retryLink.style.display = "inline-flex";
+                    window.clearInterval(window.statusTimer);
+                }
+            } catch (_error) {
+                messageEl.textContent = "正在等待服务器更新任务状态...";
+            }
+        }
+
+        window.statusTimer = window.setInterval(pollStatus, 3000);
+        pollStatus();
+    </script>
+</body>
+</html>

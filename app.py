@@ -5,7 +5,9 @@ import json
 import os
 import re
 import secrets
+import threading
 import traceback
+import uuid
 import zipfile
 from datetime import datetime
 from html import unescape
@@ -16,6 +18,7 @@ import openai
 import PyPDF2
 from docx import Document
 from flask import Flask, redirect, render_template, request, session, url_for
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 
@@ -31,7 +34,9 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-08-progress-ui"
+APP_VERSION = "2026-05-08-background-jobs"
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
 
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_SIZE
 
@@ -83,6 +88,28 @@ def render_index(**context):
     context.setdefault("password_enabled", password_enabled())
     context.setdefault("is_authenticated", is_authenticated())
     return render_template("index.html", **context)
+
+
+def set_job_progress(job_id: str, percent: int, message: str, status: str = "running", **extra) -> None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            return
+        job.update(
+            {
+                "status": status,
+                "percent": max(0, min(100, int(percent))),
+                "message": message,
+                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                **extra,
+            }
+        )
+
+
+def get_job(job_id: str) -> dict | None:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        return dict(job) if job else None
 
 
 @app.before_request
@@ -284,18 +311,15 @@ def focus_job_description_text(text: str) -> str:
     return text.strip()
 
 
-def extract_job_description_from_file(file) -> tuple[str, str | None]:
-    if not file or not file.filename:
-        return "", None
-    if not allowed_job_source_file(file.filename):
-        return "", f"{file.filename} 暂不支持作为岗位来源，请上传 HTML、TXT、PDF 或 DOCX。"
+def extract_job_description_from_bytes(data: bytes, filename: str) -> tuple[str, str | None]:
+    if not allowed_job_source_file(filename):
+        return "", f"{filename} 暂不支持作为岗位来源，请上传 HTML、TXT、PDF 或 DOCX。"
 
-    data = file.read()
-    text, error = extract_text_from_bytes(data, file.filename)
+    text, error = extract_text_from_bytes(data, filename)
     if error:
         return "", error
 
-    ext = file.filename.rsplit(".", 1)[-1].lower()
+    ext = filename.rsplit(".", 1)[-1].lower()
     if ext in {"html", "htm"}:
         extracted = extract_job_text_from_html(decode_text_bytes(data))
         if len(extracted) >= 30:
@@ -303,6 +327,12 @@ def extract_job_description_from_file(file) -> tuple[str, str | None]:
 
     focused_text = focus_job_description_text(text)
     return (focused_text or clean_job_text(text))[:12000], None
+
+
+def extract_job_description_from_file(file) -> tuple[str, str | None]:
+    if not file or not file.filename:
+        return "", None
+    return extract_job_description_from_bytes(file.read(), file.filename)
 
 
 def extract_job_text_from_html(html: str) -> str:
@@ -1583,6 +1613,30 @@ def collect_achievement_materials(files, pasted_text: str = "") -> tuple[list[di
     return materials, errors
 
 
+def collect_achievement_materials_from_payloads(file_payloads: list[dict], pasted_text: str = "") -> tuple[list[dict], list[str]]:
+    materials = []
+    errors = []
+
+    if pasted_text.strip():
+        materials.append({"filename": "手动补充内容", "text": pasted_text.strip()})
+
+    for payload in file_payloads:
+        filename = payload.get("filename", "")
+        data = payload.get("data", b"")
+        if not filename:
+            continue
+        if not allowed_support_file(filename):
+            errors.append(f"{filename} 暂不支持，已跳过。")
+            continue
+        text, error = extract_text_from_bytes(data, filename)
+        if error:
+            errors.append(error)
+            continue
+        materials.append({"filename": filename, "text": text, "size": len(data)})
+
+    return materials, errors
+
+
 def format_achievement_materials(materials: list[dict], max_chars: int = 12000) -> str:
     chunks = []
     used = 0
@@ -1713,6 +1767,110 @@ def analyze_achievement_materials(
         return local_achievement_analysis(materials, job_desc)
 
 
+def run_resume_job(job_id: str, payload: dict) -> None:
+    try:
+        set_job_progress(job_id, 10, "正在解析简历...")
+        original_filename = payload["original_filename"]
+        ext = original_filename.rsplit(".", 1)[-1].lower()
+        resume_data = payload["resume_data"]
+        job_desc = payload["job_desc"]
+        target_role = payload["target_role"]
+        style = payload["style"]
+
+        original_docx_bytes = None
+        original_paragraphs = []
+        if ext == "docx":
+            original_docx_bytes = resume_data
+            original_paragraphs = docx_paragraph_texts(original_docx_bytes)
+            resume_text = "\n".join(original_paragraphs).strip()
+            if not resume_text:
+                raise ValueError("没有从 Word 简历中读取到有效文本。")
+        else:
+            resume_text, error = extract_text_from_bytes(resume_data, original_filename)
+            if error:
+                raise ValueError(error)
+
+        set_job_progress(job_id, 22, "正在解析成果材料...")
+        achievement_materials, material_errors = collect_achievement_materials_from_payloads(
+            payload["achievement_file_payloads"],
+            payload["achievement_text"],
+        )
+
+        set_job_progress(job_id, 36, "正在理解岗位要求和简历匹配度...")
+        job_profile, original_match_analysis = analyze_role_and_resume_fit(resume_text, job_desc, target_role)
+        set_job_progress(job_id, 52, "正在筛选可补充的真实成果...")
+        achievement_analysis = analyze_achievement_materials(
+            achievement_materials,
+            resume_text,
+            job_desc,
+            target_role,
+            job_profile,
+        )
+
+        set_job_progress(job_id, 68, "正在生成针对岗位的简历改写...")
+        optimized_paragraphs = optimize_resume(
+            resume_text,
+            job_desc,
+            target_role,
+            style,
+            paragraphs=original_paragraphs if original_docx_bytes else None,
+            achievement_analysis=achievement_analysis,
+            job_profile=job_profile,
+        )
+        format_protection = {"count": 0, "paragraphs": []}
+        if original_docx_bytes:
+            raw_optimized_paragraphs = optimized_paragraphs
+            optimized_paragraphs = normalize_optimizations_for_docx(original_paragraphs, optimized_paragraphs)
+            format_protection = summarize_format_protection(original_paragraphs, raw_optimized_paragraphs, optimized_paragraphs)
+
+        set_job_progress(job_id, 84, "正在整理 Word 文件...")
+        OUTPUT_DIR.mkdir(exist_ok=True)
+        filename = f"optimized_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
+        output_path = OUTPUT_DIR / filename
+        if original_docx_bytes:
+            output_path.write_bytes(build_optimized_docx_bytes(original_docx_bytes, optimized_paragraphs))
+        else:
+            output_doc = build_docx_from_text(optimized_paragraphs)
+            output_doc.save(output_path)
+
+        set_job_progress(job_id, 92, "正在整理修改说明...")
+        change_originals = original_paragraphs if original_docx_bytes else resume_text.splitlines()
+        changes = build_change_log(change_originals, optimized_paragraphs)
+        display_text = "\n".join(item.get("text", "") for item in optimized_paragraphs)
+        if os.getenv("ANALYZE_OPTIMIZED_MATCH", "").strip() == "1":
+            optimized_match_analysis = analyze_resume_match(display_text, job_desc, target_role, job_profile)
+        else:
+            optimized_match_analysis = dict(original_match_analysis)
+            optimized_match_analysis["summary"] = "已完成简历生成。为提升线上稳定性，本次跳过优化后二次 AI 匹配评估。"
+            optimized_match_analysis["analysis_error"] = "已跳过优化后二次 AI 匹配评估。"
+        match_analysis = original_match_analysis
+        optimization_diagnosis = build_optimization_diagnosis(
+            change_originals,
+            optimized_paragraphs,
+            changes,
+            match_analysis,
+            format_protection,
+        )
+        result_context = {
+            "optimized": display_text,
+            "download": filename,
+            "edit_count": len(changes),
+            "changes": changes,
+            "match_analysis": match_analysis,
+            "optimized_match_analysis": optimized_match_analysis,
+            "achievement_analysis": achievement_analysis,
+            "job_profile": job_profile,
+            "material_count": len(achievement_materials),
+            "material_errors": material_errors,
+            "optimization_diagnosis": optimization_diagnosis,
+            "used_ai": bool(openai.api_key),
+        }
+        set_job_progress(job_id, 100, "生成完成，可以查看结果并下载 Word。", status="done", result=result_context)
+    except Exception as exc:
+        traceback.print_exc()
+        set_job_progress(job_id, 100, f"生成失败：{exc}", status="failed", error=str(exc))
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "GET":
@@ -1728,115 +1886,83 @@ def index():
     if password_enabled() and not is_authenticated():
         password = request.form.get("password", "")
         if not secrets.compare_digest(password, APP_PASSWORD):
-            return render_index(
-                error="生成优化前请输入正确口令。",
-                form=request.form,
-            ), 401
+            return render_index(error="生成优化前请输入正确口令。", form=request.form), 401
         session["authenticated"] = True
 
     if not resume_file or not resume_file.filename:
         return render_index(error="请上传一份 PDF 或 DOCX 简历。")
     if not allowed_file(resume_file.filename):
         return render_index(error="文件格式不支持，请上传 PDF 或 DOCX。")
+
     job_file_error = None
     if job_file and job_file.filename:
         file_job_desc, job_file_error = extract_job_description_from_file(job_file)
         if file_job_desc:
             job_desc = "\n\n".join(part for part in (job_desc, file_job_desc) if part)
     if not job_desc:
-        return render_index(
-            error=job_file_error or "请填写岗位描述，或上传岗位页面/JD 文件。",
-            form=request.form,
-        )
+        return render_index(error=job_file_error or "请填写岗位描述，或上传岗位页面/JD 文件。", form=request.form)
 
     original_filename = secure_filename(resume_file.filename)
-    ext = original_filename.rsplit(".", 1)[-1].lower()
+    resume_data = resume_file.read()
+    achievement_file_payloads = [
+        {"filename": file.filename, "data": file.read()}
+        for file in request.files.getlist("achievement_files")
+        if file and file.filename
+    ]
+    job_id = uuid.uuid4().hex
+    with JOBS_LOCK:
+        JOBS[job_id] = {
+            "status": "running",
+            "percent": 3,
+            "message": "任务已创建，正在准备生成...",
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+    payload = {
+        "original_filename": original_filename,
+        "resume_data": resume_data,
+        "job_desc": job_desc,
+        "target_role": target_role,
+        "style": style,
+        "achievement_text": achievement_text,
+        "achievement_file_payloads": achievement_file_payloads,
+    }
+    worker = threading.Thread(target=run_resume_job, args=(job_id, payload), daemon=True)
+    worker.start()
+    return redirect(url_for("job_status_page", job_id=job_id))
 
-    doc = None
-    original_docx_bytes = None
-    original_paragraphs = []
-    if ext == "docx":
-        try:
-            original_docx_bytes = resume_file.read()
-            original_paragraphs = docx_paragraph_texts(original_docx_bytes)
-            resume_text = "\n".join(original_paragraphs).strip()
-            if not resume_text:
-                return render_index(error="没有从 Word 简历中读取到有效文本。")
-        except Exception as exc:
-            return render_index(error=f"Word 文件解析失败：{exc}")
-    else:
-        resume_text, error = extract_text_from_file(resume_file, original_filename)
-        if error:
-            return render_index(error=error)
 
-    achievement_files = request.files.getlist("achievement_files")
-    achievement_materials, material_errors = collect_achievement_materials(achievement_files, achievement_text)
-    job_profile, original_match_analysis = analyze_role_and_resume_fit(resume_text, job_desc, target_role)
-    achievement_analysis = analyze_achievement_materials(
-        achievement_materials,
-        resume_text,
-        job_desc,
-        target_role,
-        job_profile,
-    )
+@app.get("/jobs/<job_id>")
+def job_status_page(job_id: str):
+    if not get_job(job_id):
+        return render_template("error.html", message="任务不存在或已过期，请重新提交。"), 404
+    return render_template("job.html", job_id=job_id)
 
-    optimized_paragraphs = optimize_resume(
-        resume_text,
-        job_desc,
-        target_role,
-        style,
-        paragraphs=original_paragraphs if original_docx_bytes else None,
-        achievement_analysis=achievement_analysis,
-        job_profile=job_profile,
-    )
-    format_protection = {"count": 0, "paragraphs": []}
-    if original_docx_bytes:
-        raw_optimized_paragraphs = optimized_paragraphs
-        optimized_paragraphs = normalize_optimizations_for_docx(original_paragraphs, optimized_paragraphs)
-        format_protection = summarize_format_protection(original_paragraphs, raw_optimized_paragraphs, optimized_paragraphs)
 
-    OUTPUT_DIR.mkdir(exist_ok=True)
-    filename = f"optimized_resume_{datetime.now().strftime('%Y%m%d_%H%M%S')}.docx"
-    output_path = OUTPUT_DIR / filename
-    if original_docx_bytes:
-        output_path.write_bytes(build_optimized_docx_bytes(original_docx_bytes, optimized_paragraphs))
-    else:
-        output_doc = build_docx_from_text(optimized_paragraphs)
-        output_doc.save(output_path)
+@app.get("/jobs/<job_id>/status")
+def job_status(job_id: str):
+    job = get_job(job_id)
+    if not job:
+        return {"status": "missing", "percent": 100, "message": "任务不存在或已过期，请重新提交。"}, 404
+    return {
+        "status": job.get("status", "running"),
+        "percent": job.get("percent", 0),
+        "message": job.get("message", ""),
+        "result_url": url_for("job_result", job_id=job_id) if job.get("status") == "done" else "",
+        "error": job.get("error", ""),
+    }
 
-    change_originals = original_paragraphs if original_docx_bytes else resume_text.splitlines()
-    changes = build_change_log(change_originals, optimized_paragraphs)
-    display_text = "\n".join(item.get("text", "") for item in optimized_paragraphs)
-    if os.getenv("ANALYZE_OPTIMIZED_MATCH", "").strip() == "1":
-        optimized_match_analysis = analyze_resume_match(display_text, job_desc, target_role, job_profile)
-    else:
-        optimized_match_analysis = dict(original_match_analysis)
-        optimized_match_analysis["summary"] = "已完成简历生成。为提升线上稳定性，本次跳过优化后二次 AI 匹配评估。"
-        optimized_match_analysis["analysis_error"] = "已跳过优化后二次 AI 匹配评估。"
-    match_analysis = original_match_analysis
-    optimization_diagnosis = build_optimization_diagnosis(
-        change_originals,
-        optimized_paragraphs,
-        changes,
-        match_analysis,
-        format_protection,
-    )
 
-    return render_template(
-        "result.html",
-        optimized=display_text,
-        download=filename,
-        edit_count=len(changes),
-        changes=changes,
-        match_analysis=match_analysis,
-        optimized_match_analysis=optimized_match_analysis,
-        achievement_analysis=achievement_analysis,
-        job_profile=job_profile,
-        material_count=len(achievement_materials),
-        material_errors=material_errors,
-        optimization_diagnosis=optimization_diagnosis,
-        used_ai=bool(openai.api_key),
-    )
+@app.get("/jobs/<job_id>/result")
+def job_result(job_id: str):
+    job = get_job(job_id)
+    if not job:
+        return render_template("error.html", message="任务不存在或已过期，请重新提交。"), 404
+    if job.get("status") == "failed":
+        return render_template("error.html", message=job.get("error") or "生成失败，请重新提交。"), 500
+    if job.get("status") != "done":
+        return redirect(url_for("job_status_page", job_id=job_id))
+    return render_template("result.html", **job.get("result", {}))
 
 
 @app.errorhandler(413)
@@ -1858,6 +1984,8 @@ def health():
 
 @app.errorhandler(Exception)
 def internal_error(error):
+    if isinstance(error, HTTPException):
+        return error
     traceback.print_exc()
     message = "服务器处理失败，请稍后重试。"
     if os.getenv("SHOW_ERROR_DETAILS", "").strip() == "1":
