@@ -19,7 +19,7 @@ from xml.etree import ElementTree as ET
 
 import openai
 import PyPDF2
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 from docx import Document
 from flask import Flask, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.exceptions import HTTPException
@@ -39,7 +39,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-docx-image-greeting-v2"
+APP_VERSION = "2026-05-09-docx-image-greeting-v3"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -1344,6 +1344,15 @@ def wrap_text_for_image(draw: ImageDraw.ImageDraw, text: str, font, max_width: i
     return lines
 
 
+def extract_docx_text_for_image(docx_path: Path) -> str:
+    try:
+        doc = Document(docx_path)
+        parts = [paragraph.text.strip() for paragraph in iter_doc_paragraphs(doc) if paragraph.text.strip()]
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+
 def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
     width = 1080
     padding = 64
@@ -1354,8 +1363,10 @@ def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
     max_width = width - padding * 2
     probe = Image.new("RGB", (width, 200), "white")
     draw = ImageDraw.Draw(probe)
-    lines = wrap_text_for_image(draw, text, body_font, max_width)
-    height = max(900, padding * 2 + 120 + len(lines) * line_height + 60)
+    clean_text = re.sub(r"\n{3,}", "\n\n", str(text or "").strip())
+    lines = wrap_text_for_image(draw, clean_text or "暂无可预览内容，请下载 Word 文件查看。", body_font, max_width)
+    content_height = padding * 2 + 120 + len(lines) * line_height + 28
+    height = max(360, content_height)
     image = Image.new("RGB", (width, height), "#f6f7fb")
     draw = ImageDraw.Draw(image)
     draw.rounded_rectangle((32, 32, width - 32, height - 32), radius=18, fill="white", outline="#dce1ea", width=2)
@@ -1373,7 +1384,7 @@ def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
 
 def find_office_converter() -> str | None:
     configured = os.getenv("SOFFICE_PATH", "").strip()
-    candidates = [configured, "soffice", "libreoffice"]
+    candidates = [configured, "/usr/bin/soffice", "/usr/bin/libreoffice", "soffice", "libreoffice"]
     for command in candidates:
         if not command:
             continue
@@ -1394,22 +1405,14 @@ def find_office_converter() -> str | None:
 
 def crop_bottom_whitespace(image: Image.Image, margin: int = 28) -> Image.Image:
     rgb = image.convert("RGB")
-    width, height = rgb.size
-    pixels = rgb.load()
-    bottom = height - 1
-    threshold = 246
-    while bottom > 0:
-        has_content = False
-        for x in range(0, width, 4):
-            r, g, b = pixels[x, bottom]
-            if r < threshold or g < threshold or b < threshold:
-                has_content = True
-                break
-        if has_content:
-            break
-        bottom -= 1
-    bottom = min(height, bottom + margin)
-    return rgb.crop((0, 0, width, max(bottom, 1)))
+    background = Image.new("RGB", rgb.size, "white")
+    diff = ImageChops.difference(rgb, background)
+    bbox = diff.point(lambda value: 255 if value > 10 else 0).getbbox()
+    if not bbox:
+        return rgb
+    left, top, right, bottom = bbox
+    bottom = min(rgb.height, bottom + margin)
+    return rgb.crop((0, 0, rgb.width, max(bottom, 1)))
 
 
 def pdf_to_long_image(pdf_path: Path) -> bytes:
@@ -1441,9 +1444,11 @@ def pdf_to_long_image(pdf_path: Path) -> bytes:
 
 
 def build_resume_image_from_docx(docx_path: Path, fallback_text: str) -> bytes:
+    docx_text = extract_docx_text_for_image(docx_path)
+    fallback = docx_text or fallback_text
     converter = find_office_converter()
     if not converter:
-        return build_resume_image(fallback_text)
+        return build_resume_image(fallback)
 
     tmp_dir = docx_path.parent / f"pdf_{docx_path.stem}"
     shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -1453,8 +1458,12 @@ def build_resume_image_from_docx(docx_path: Path, fallback_text: str) -> bytes:
             [
                 converter,
                 "--headless",
+                "--invisible",
+                "--nodefault",
+                "--nofirststartwizard",
+                "--nolockcheck",
                 "--convert-to",
-                "pdf",
+                "pdf:writer_pdf_Export",
                 "--outdir",
                 str(tmp_dir),
                 str(docx_path),
@@ -1466,10 +1475,10 @@ def build_resume_image_from_docx(docx_path: Path, fallback_text: str) -> bytes:
         )
         pdf_path = tmp_dir / f"{docx_path.stem}.pdf"
         if result.returncode != 0 or not pdf_path.exists():
-            return build_resume_image(fallback_text)
+            return build_resume_image(fallback)
         return pdf_to_long_image(pdf_path)
     except Exception:
-        return build_resume_image(fallback_text)
+        return build_resume_image(fallback)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
@@ -1489,23 +1498,51 @@ def clean_greeting_evidence(text: str) -> str:
     return text
 
 
+def make_short_list(items: list[str], limit: int = 3) -> list[str]:
+    cleaned = []
+    for item in items:
+        value = compact_sentence(item, 18).strip(" ，。；;")
+        if value and value not in cleaned:
+            cleaned.append(value)
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def evidence_phrase(text: str, limit: int = 46) -> str:
+    text = clean_greeting_evidence(text)
+    text = re.sub(r"^[^：:]{2,14}[：:]\s*", "", text)
+    text = re.sub(r"^(有|具备|负责|主导|参与|曾经|过往)", "", text).strip(" ，。；;")
+    return compact_sentence(text, limit)
+
+
 def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: str, resume_text: str) -> list[str]:
     role = target_role or str(job_profile.get("role_summary", "")).strip() or "这个岗位"
     strengths = [clean_greeting_evidence(item) for item in match_analysis.get("strengths", []) if str(item).strip()]
     strengths = [item for item in strengths if item]
-    tasks = [compact_sentence(item, 12) for item in job_profile.get("core_tasks", []) if str(item).strip()]
-    keywords = [compact_sentence(item, 10) for item in job_profile.get("keywords", []) if str(item).strip()]
-    focus_items = list(dict.fromkeys(tasks + keywords))[:2]
-    focus_text = "、".join(focus_items) if focus_items else "岗位相关工作"
-    evidence = strengths[0] if strengths else ""
-    second_evidence = strengths[1] if len(strengths) > 1 else ""
+    tasks = make_short_list([str(item) for item in job_profile.get("core_tasks", []) if str(item).strip()], 2)
+    keywords = make_short_list([str(item) for item in job_profile.get("keywords", []) if str(item).strip()], 3)
+    labels = make_short_list(keywords + tasks, 3)
+    label_text = "、".join(labels) if labels else "岗位要求的方向"
+    first_evidence = evidence_phrase(strengths[0], 48) if strengths else ""
+    second_evidence = evidence_phrase(strengths[1], 48) if len(strengths) > 1 else ""
+    if not second_evidence and len(strengths) > 2:
+        second_evidence = evidence_phrase(strengths[2], 48)
+    focus_text = "、".join(tasks or labels[:2]) if (tasks or labels) else "岗位核心要求"
 
-    greetings = [
-        f"您好，看到贵司在招{role}，我对这个方向比较感兴趣。",
-        f"我之前做过{focus_text}相关工作，{evidence}。" if evidence else f"我之前的经历与{focus_text}比较相关，想进一步了解这个机会。",
-        f"{second_evidence}，希望有机会和您简单沟通一下，谢谢。" if second_evidence else "如果岗位还在招聘，希望有机会和您简单沟通一下，谢谢。",
-    ]
-    return [compact_sentence(item, 86) for item in greetings]
+    first = (
+        f"您好，看到贵司在招{role}，我的经历里比较贴合的是{first_evidence}。"
+        if first_evidence
+        else f"您好，看到贵司在招{role}，我过往经历和{label_text}比较相关。"
+    )
+    second = (
+        f"我的匹配标签可以概括为{label_text}，也做过{second_evidence}这类实际项目。"
+        if second_evidence
+        else f"我的匹配标签可以概括为{label_text}，整体和岗位要求的能力方向比较接近。"
+    )
+    third = f"看下来JD里比较重视{focus_text}，这部分和我之前做的事能对上，希望有机会简单沟通一下，谢谢。"
+
+    return [compact_sentence(item, 92) for item in (first, second, third)]
 
 
 def build_change_log(originals: list[str], optimized_paragraphs: list[dict]) -> list[dict]:
@@ -2345,6 +2382,7 @@ def health():
         "password_enabled": password_enabled(),
         "deepseek_key_configured": bool(openai.api_key),
         "deepseek_base": openai.api_base,
+        "office_converter_available": bool(find_office_converter()),
         "output_dir_exists": OUTPUT_DIR.exists(),
     }
 
