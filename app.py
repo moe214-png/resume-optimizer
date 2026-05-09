@@ -39,7 +39,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-docx-image-greeting-v3"
+APP_VERSION = "2026-05-09-docx-image-greeting-v4"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -1384,7 +1384,15 @@ def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
 
 def find_office_converter() -> str | None:
     configured = os.getenv("SOFFICE_PATH", "").strip()
-    candidates = [configured, "/usr/bin/soffice", "/usr/bin/libreoffice", "soffice", "libreoffice"]
+    candidates = [
+        configured,
+        shutil.which("soffice") or "",
+        shutil.which("libreoffice") or "",
+        "/usr/bin/soffice",
+        "/usr/bin/libreoffice",
+        "soffice",
+        "libreoffice",
+    ]
     for command in candidates:
         if not command:
             continue
@@ -2376,13 +2384,17 @@ def file_too_large(_error):
 
 @app.get("/health")
 def health():
+    converter = find_office_converter()
     return {
         "ok": True,
         "version": APP_VERSION,
         "password_enabled": password_enabled(),
         "deepseek_key_configured": bool(openai.api_key),
         "deepseek_base": openai.api_base,
-        "office_converter_available": bool(find_office_converter()),
+        "office_converter_available": bool(converter),
+        "office_converter_command": converter or "",
+        "soffice_path": shutil.which("soffice") or "",
+        "libreoffice_path": shutil.which("libreoffice") or "",
         "output_dir_exists": OUTPUT_DIR.exists(),
     }
 
