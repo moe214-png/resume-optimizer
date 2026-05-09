@@ -1,2 +1,3 @@
 [phases.setup]
-aptPkgs = ["...", "libreoffice", "libreoffice-writer", "fonts-noto-cjk", "fonts-wqy-microhei", "fonts-wqy-zenhei"]
+nixPkgs = ["...", "libreoffice"]
+aptPkgs = ["...", "fonts-noto-cjk", "fonts-wqy-microhei", "fonts-wqy-zenhei"]
