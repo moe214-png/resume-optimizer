@@ -1479,22 +1479,33 @@ def compact_sentence(text: str, limit: int = 90) -> str:
     return text[:limit].rstrip(" ，；;") if len(text) > limit else text
 
 
+def clean_greeting_evidence(text: str) -> str:
+    text = compact_sentence(text, 64)
+    text = re.sub(r"^(匹配优势|优势|简历现有证据|候选人)[:：]\s*", "", text)
+    text = re.sub(r"(高度匹配|中高匹配|较为匹配|可迁移|部分匹配)[:：，,]?\s*", "", text)
+    text = text.strip(" ，。；;")
+    if len(text) < 8 or any(word in text for word in ("未识别", "缺少", "不足", "不匹配")):
+        return ""
+    return text
+
+
 def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: str, resume_text: str) -> list[str]:
     role = target_role or str(job_profile.get("role_summary", "")).strip() or "这个岗位"
-    strengths = [compact_sentence(item, 46) for item in match_analysis.get("strengths", []) if str(item).strip()]
+    strengths = [clean_greeting_evidence(item) for item in match_analysis.get("strengths", []) if str(item).strip()]
+    strengths = [item for item in strengths if item]
     tasks = [compact_sentence(item, 12) for item in job_profile.get("core_tasks", []) if str(item).strip()]
-    abilities = [compact_sentence(item, 12) for item in job_profile.get("transferable_abilities", []) if str(item).strip()]
     keywords = [compact_sentence(item, 10) for item in job_profile.get("keywords", []) if str(item).strip()]
-    tags = list(dict.fromkeys(tasks + abilities + keywords))[:4]
-    evidence = strengths[0] if strengths else compact_sentence(resume_text, 42)
-    tag_text = "、".join(tags) if tags else "岗位相关能力、项目推进、数据复盘"
+    focus_items = list(dict.fromkeys(tasks + keywords))[:2]
+    focus_text = "、".join(focus_items) if focus_items else "岗位相关工作"
+    evidence = strengths[0] if strengths else ""
+    second_evidence = strengths[1] if len(strengths) > 1 else ""
 
     greetings = [
-        f"您好，我关注到贵司{role}岗位。{evidence}。",
-        f"熟悉{tag_text}，与岗位要求比较匹配。",
-        "对贵司方向很感兴趣，希望有机会进一步沟通，感谢您。",
+        f"您好，看到贵司在招{role}，我对这个方向比较感兴趣。",
+        f"我之前做过{focus_text}相关工作，{evidence}。" if evidence else f"我之前的经历与{focus_text}比较相关，想进一步了解这个机会。",
+        f"{second_evidence}，希望有机会和您简单沟通一下，谢谢。" if second_evidence else "如果岗位还在招聘，希望有机会和您简单沟通一下，谢谢。",
     ]
-    return [compact_sentence(item, 78) for item in greetings]
+    return [compact_sentence(item, 86) for item in greetings]
 
 
 def build_change_log(originals: list[str], optimized_paragraphs: list[dict]) -> list[dict]:
