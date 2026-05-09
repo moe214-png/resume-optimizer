@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import threading
 import traceback
 import uuid
@@ -38,7 +39,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-image-greeting"
+APP_VERSION = "2026-05-09-docx-image-greeting-v2"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -1370,28 +1371,130 @@ def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
     return output.getvalue()
 
 
+def find_office_converter() -> str | None:
+    configured = os.getenv("SOFFICE_PATH", "").strip()
+    candidates = [configured, "soffice", "libreoffice"]
+    for command in candidates:
+        if not command:
+            continue
+        try:
+            result = subprocess.run(
+                [command, "--version"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=8,
+                check=False,
+            )
+            if result.returncode == 0:
+                return command
+        except Exception:
+            continue
+    return None
+
+
+def crop_bottom_whitespace(image: Image.Image, margin: int = 28) -> Image.Image:
+    rgb = image.convert("RGB")
+    width, height = rgb.size
+    pixels = rgb.load()
+    bottom = height - 1
+    threshold = 246
+    while bottom > 0:
+        has_content = False
+        for x in range(0, width, 4):
+            r, g, b = pixels[x, bottom]
+            if r < threshold or g < threshold or b < threshold:
+                has_content = True
+                break
+        if has_content:
+            break
+        bottom -= 1
+    bottom = min(height, bottom + margin)
+    return rgb.crop((0, 0, width, max(bottom, 1)))
+
+
+def pdf_to_long_image(pdf_path: Path) -> bytes:
+    import fitz
+
+    page_images: list[Image.Image] = []
+    with fitz.open(pdf_path) as pdf:
+        for page in pdf:
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            page_image = Image.open(io.BytesIO(pixmap.tobytes("png"))).convert("RGB")
+            page_images.append(crop_bottom_whitespace(page_image))
+
+    if not page_images:
+        raise ValueError("PDF 未生成有效页面")
+
+    width = max(image.width for image in page_images)
+    gap = 18 if len(page_images) > 1 else 0
+    height = sum(image.height for image in page_images) + gap * (len(page_images) - 1)
+    output_image = Image.new("RGB", (width, height), "white")
+    y = 0
+    for image in page_images:
+        x = (width - image.width) // 2
+        output_image.paste(image, (x, y))
+        y += image.height + gap
+
+    output = io.BytesIO()
+    output_image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def build_resume_image_from_docx(docx_path: Path, fallback_text: str) -> bytes:
+    converter = find_office_converter()
+    if not converter:
+        return build_resume_image(fallback_text)
+
+    tmp_dir = docx_path.parent / f"pdf_{docx_path.stem}"
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        result = subprocess.run(
+            [
+                converter,
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(tmp_dir),
+                str(docx_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=90,
+            check=False,
+        )
+        pdf_path = tmp_dir / f"{docx_path.stem}.pdf"
+        if result.returncode != 0 or not pdf_path.exists():
+            return build_resume_image(fallback_text)
+        return pdf_to_long_image(pdf_path)
+    except Exception:
+        return build_resume_image(fallback_text)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
 def compact_sentence(text: str, limit: int = 90) -> str:
-    text = re.sub(r"\s+", " ", str(text or "")).strip(" ，。；;")
-    return text[:limit].rstrip(" ，。；;") if len(text) > limit else text
+    text = re.sub(r"\s+", " ", str(text or "")).strip(" ，；;")
+    return text[:limit].rstrip(" ，；;") if len(text) > limit else text
 
 
 def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: str, resume_text: str) -> list[str]:
     role = target_role or str(job_profile.get("role_summary", "")).strip() or "这个岗位"
-    strengths = [compact_sentence(item, 70) for item in match_analysis.get("strengths", []) if str(item).strip()]
-    tasks = [compact_sentence(item, 24) for item in job_profile.get("core_tasks", []) if str(item).strip()]
-    abilities = [compact_sentence(item, 24) for item in job_profile.get("transferable_abilities", []) if str(item).strip()]
-    keywords = [compact_sentence(item, 18) for item in job_profile.get("keywords", []) if str(item).strip()]
-    tags = list(dict.fromkeys(tasks + abilities + keywords))[:5]
-    evidence = strengths[0] if strengths else compact_sentence(resume_text, 70)
-    evidence_2 = strengths[1] if len(strengths) > 1 else evidence
+    strengths = [compact_sentence(item, 46) for item in match_analysis.get("strengths", []) if str(item).strip()]
+    tasks = [compact_sentence(item, 12) for item in job_profile.get("core_tasks", []) if str(item).strip()]
+    abilities = [compact_sentence(item, 12) for item in job_profile.get("transferable_abilities", []) if str(item).strip()]
+    keywords = [compact_sentence(item, 10) for item in job_profile.get("keywords", []) if str(item).strip()]
+    tags = list(dict.fromkeys(tasks + abilities + keywords))[:4]
+    evidence = strengths[0] if strengths else compact_sentence(resume_text, 42)
     tag_text = "、".join(tags) if tags else "岗位相关能力、项目推进、数据复盘"
 
     greetings = [
-        f"您好，我关注到贵司{role}岗位。{evidence}，同时具备{tag_text}等相关经验，与岗位要求比较匹配，希望有机会进一步沟通。",
-        f"您好，我有{role}相关经历，过往工作中重点负责{tag_text}。{evidence_2}，对贵司岗位方向很感兴趣，期待能获得一次交流机会。",
-        f"您好，看到贵司正在招聘{role}，我的经历与岗位中的{tag_text}较为契合。{evidence}，希望可以进一步了解岗位，也欢迎您查看我的简历。",
+        f"您好，我关注到贵司{role}岗位。{evidence}。",
+        f"熟悉{tag_text}，与岗位要求比较匹配。",
+        "对贵司方向很感兴趣，希望有机会进一步沟通，感谢您。",
     ]
-    return [compact_sentence(item, 180) for item in greetings]
+    return [compact_sentence(item, 78) for item in greetings]
 
 
 def build_change_log(originals: list[str], optimized_paragraphs: list[dict]) -> list[dict]:
@@ -2000,7 +2103,7 @@ def run_resume_job(job_id: str, payload: dict) -> None:
         changes = build_change_log(change_originals, optimized_paragraphs)
         display_text = "\n".join(item.get("text", "") for item in optimized_paragraphs)
         image_filename = filename.replace("optimized_resume_", "resume_image_").replace(".docx", ".png")
-        (OUTPUT_DIR / image_filename).write_bytes(build_resume_image(display_text))
+        (OUTPUT_DIR / image_filename).write_bytes(build_resume_image_from_docx(output_path, display_text))
 
         set_job_progress(job_id, 92, "正在整理修改说明和招呼语...")
         if os.getenv("ANALYZE_OPTIMIZED_MATCH", "").strip() == "1":
