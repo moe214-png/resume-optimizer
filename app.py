@@ -39,7 +39,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-docx-image-greeting-v6"
+APP_VERSION = "2026-05-09-docx-image-greeting-v7"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -1539,9 +1539,9 @@ def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: s
     focus_text = "、".join(tasks or labels[:2]) if (tasks or labels) else "岗位核心要求"
 
     first = (
-        f"您好，我的优势主要集中在{first_evidence}。"
+        f"您好，过往工作中我沉淀了较完整的项目经验，包括{first_evidence}。"
         if first_evidence
-        else f"您好，我的过往积累主要集中在{label_text}等方向。"
+        else f"您好，过往工作中我在{label_text}等方向有持续实践和项目积累。"
     )
     second = (
         f"能力侧重点覆盖{label_text}，并沉淀过{second_evidence}等项目经验。"
