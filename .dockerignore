@@ -1,0 +1,9 @@
+.env
+.git
+.gitignore
+__pycache__/
+*.pyc
+uploads/
+static/optimized_resume_*.docx
+static/resume_image_*.png
+*.log
