@@ -8,6 +8,7 @@ __pycache__/
 # Generated outputs
 static/*.docx
 static/optimized_resume_*.docx
+static/resume_image_*.png
 static/debug_real_resume_output.docx
 uploads/
 

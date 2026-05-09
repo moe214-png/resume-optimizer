@@ -168,6 +168,32 @@
             margin-top: 12px;
         }
 
+        .copy-box {
+            width: 100%;
+            min-height: 190px;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: #fff;
+            color: var(--text);
+            font: inherit;
+            line-height: 1.8;
+            resize: vertical;
+        }
+
+        .copy-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
+
+        .copy-status {
+            color: var(--muted);
+            font-size: 14px;
+        }
+
         button.danger {
             min-height: 40px;
             padding: 0 14px;
@@ -175,6 +201,18 @@
             border: 1px solid #ffccc7;
             background: #fff;
             color: #b42318;
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button.secondary {
+            min-height: 40px;
+            padding: 0 14px;
+            border-radius: 6px;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: var(--text);
             font: inherit;
             font-weight: 700;
             cursor: pointer;
@@ -307,6 +345,9 @@
             </div>
             <div class="actions">
                 <a class="primary" href="/download/{{ download }}">下载 Word</a>
+                {% if image_download %}
+                    <a href="/download/{{ image_download }}">下载简历长图</a>
+                {% endif %}
                 <a href="/">继续优化</a>
             </div>
         </section>
@@ -345,6 +386,18 @@
                 {% if match_analysis.analysis_error %}
                     <p class="warning">{{ match_analysis.analysis_error }}</p>
                 {% endif %}
+            </section>
+        {% endif %}
+
+        {% if boss_greetings %}
+            <section class="section">
+                <h2>BOSS 直聘招呼语</h2>
+                <p class="meta">参考“说优势、贴标签、说匹配、表诉求”的结构生成，三段之间已空一行，可直接复制。</p>
+                <textarea id="boss_greetings" class="copy-box" readonly>{{ boss_greetings | join('\n\n') }}</textarea>
+                <div class="copy-actions">
+                    <button id="copy_greetings" class="secondary" type="button">复制招呼语</button>
+                    <span id="copy_status" class="copy-status"></span>
+                </div>
             </section>
         {% endif %}
 
@@ -586,5 +639,24 @@
             <pre>{{ optimized }}</pre>
         </section>
     </main>
+    <script>
+        const copyButton = document.getElementById("copy_greetings");
+        const greetingBox = document.getElementById("boss_greetings");
+        const copyStatus = document.getElementById("copy_status");
+
+        if (copyButton && greetingBox) {
+            copyButton.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(greetingBox.value);
+                    copyStatus.textContent = "已复制";
+                } catch (_error) {
+                    greetingBox.focus();
+                    greetingBox.select();
+                    document.execCommand("copy");
+                    copyStatus.textContent = "已复制";
+                }
+            });
+        }
+    </script>
 </body>
 </html>

@@ -18,6 +18,7 @@ from xml.etree import ElementTree as ET
 
 import openai
 import PyPDF2
+from PIL import Image, ImageDraw, ImageFont
 from docx import Document
 from flask import Flask, redirect, render_template, request, send_from_directory, session, url_for
 from werkzeug.exceptions import HTTPException
@@ -37,7 +38,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-upload-retention"
+APP_VERSION = "2026-05-09-image-greeting"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -74,12 +75,13 @@ def cleanup_old_outputs() -> None:
         return
 
     cutoff = datetime.now().timestamp() - OUTPUT_TTL_SECONDS
-    for path in OUTPUT_DIR.glob("optimized_resume_*.docx"):
-        try:
-            if path.stat().st_mtime < cutoff:
-                path.unlink()
-        except OSError:
-            continue
+    for pattern in ("optimized_resume_*.docx", "resume_image_*.png"):
+        for path in OUTPUT_DIR.glob(pattern):
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+            except OSError:
+                continue
 
 
 def cleanup_old_uploads() -> None:
@@ -1307,6 +1309,91 @@ def build_docx_from_text(optimized_paragraphs: list[dict]) -> Document:
     return doc
 
 
+def get_font(size: int, bold: bool = False):
+    candidates = [
+        "C:/Windows/Fonts/msyhbd.ttc" if bold else "C:/Windows/Fonts/msyh.ttc",
+        "C:/Windows/Fonts/simhei.ttf",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+    for path in candidates:
+        if path and Path(path).exists():
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default()
+
+
+def wrap_text_for_image(draw: ImageDraw.ImageDraw, text: str, font, max_width: int) -> list[str]:
+    lines: list[str] = []
+    for paragraph in str(text or "").splitlines() or [""]:
+        paragraph = paragraph.strip()
+        if not paragraph:
+            lines.append("")
+            continue
+        current = ""
+        for char in paragraph:
+            test = current + char
+            width = draw.textbbox((0, 0), test, font=font)[2]
+            if width <= max_width or not current:
+                current = test
+            else:
+                lines.append(current)
+                current = char
+        if current:
+            lines.append(current)
+    return lines
+
+
+def build_resume_image(text: str, title: str = "优化版简历") -> bytes:
+    width = 1080
+    padding = 64
+    title_font = get_font(40, bold=True)
+    body_font = get_font(28)
+    small_font = get_font(22)
+    line_height = 46
+    max_width = width - padding * 2
+    probe = Image.new("RGB", (width, 200), "white")
+    draw = ImageDraw.Draw(probe)
+    lines = wrap_text_for_image(draw, text, body_font, max_width)
+    height = max(900, padding * 2 + 120 + len(lines) * line_height + 60)
+    image = Image.new("RGB", (width, height), "#f6f7fb")
+    draw = ImageDraw.Draw(image)
+    draw.rounded_rectangle((32, 32, width - 32, height - 32), radius=18, fill="white", outline="#dce1ea", width=2)
+    draw.text((padding, padding), title, fill="#20242c", font=title_font)
+    draw.text((padding, padding + 54), "建议下载 Word 原文件投递；长图适合手机预览和快速分享。", fill="#657084", font=small_font)
+    y = padding + 110
+    for line in lines:
+        if line:
+            draw.text((padding, y), line, fill="#20242c", font=body_font)
+        y += line_height
+    output = io.BytesIO()
+    image.save(output, format="PNG", optimize=True)
+    return output.getvalue()
+
+
+def compact_sentence(text: str, limit: int = 90) -> str:
+    text = re.sub(r"\s+", " ", str(text or "")).strip(" ，。；;")
+    return text[:limit].rstrip(" ，。；;") if len(text) > limit else text
+
+
+def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: str, resume_text: str) -> list[str]:
+    role = target_role or str(job_profile.get("role_summary", "")).strip() or "这个岗位"
+    strengths = [compact_sentence(item, 70) for item in match_analysis.get("strengths", []) if str(item).strip()]
+    tasks = [compact_sentence(item, 24) for item in job_profile.get("core_tasks", []) if str(item).strip()]
+    abilities = [compact_sentence(item, 24) for item in job_profile.get("transferable_abilities", []) if str(item).strip()]
+    keywords = [compact_sentence(item, 18) for item in job_profile.get("keywords", []) if str(item).strip()]
+    tags = list(dict.fromkeys(tasks + abilities + keywords))[:5]
+    evidence = strengths[0] if strengths else compact_sentence(resume_text, 70)
+    evidence_2 = strengths[1] if len(strengths) > 1 else evidence
+    tag_text = "、".join(tags) if tags else "岗位相关能力、项目推进、数据复盘"
+
+    greetings = [
+        f"您好，我关注到贵司{role}岗位。{evidence}，同时具备{tag_text}等相关经验，与岗位要求比较匹配，希望有机会进一步沟通。",
+        f"您好，我有{role}相关经历，过往工作中重点负责{tag_text}。{evidence_2}，对贵司岗位方向很感兴趣，期待能获得一次交流机会。",
+        f"您好，看到贵司正在招聘{role}，我的经历与岗位中的{tag_text}较为契合。{evidence}，希望可以进一步了解岗位，也欢迎您查看我的简历。",
+    ]
+    return [compact_sentence(item, 180) for item in greetings]
+
+
 def build_change_log(originals: list[str], optimized_paragraphs: list[dict]) -> list[dict]:
     changes = []
 
@@ -1908,10 +1995,14 @@ def run_resume_job(job_id: str, payload: dict) -> None:
             output_doc = build_docx_from_text(optimized_paragraphs)
             output_doc.save(output_path)
 
-        set_job_progress(job_id, 92, "正在整理修改说明...")
+        set_job_progress(job_id, 88, "正在生成简历长图...")
         change_originals = original_paragraphs if original_docx_bytes else resume_text.splitlines()
         changes = build_change_log(change_originals, optimized_paragraphs)
         display_text = "\n".join(item.get("text", "") for item in optimized_paragraphs)
+        image_filename = filename.replace("optimized_resume_", "resume_image_").replace(".docx", ".png")
+        (OUTPUT_DIR / image_filename).write_bytes(build_resume_image(display_text))
+
+        set_job_progress(job_id, 92, "正在整理修改说明和招呼语...")
         if os.getenv("ANALYZE_OPTIMIZED_MATCH", "").strip() == "1":
             optimized_match_analysis = analyze_resume_match(display_text, job_desc, target_role, job_profile)
         else:
@@ -1929,6 +2020,8 @@ def run_resume_job(job_id: str, payload: dict) -> None:
         result_context = {
             "optimized": display_text,
             "download": filename,
+            "image_download": image_filename,
+            "boss_greetings": build_boss_greetings(match_analysis, job_profile, target_role, resume_text),
             "format_warning": format_warning,
             "job_id": job_id,
             "upload_retention_notice": f"原始上传文件会临时保存 {UPLOAD_TTL_SECONDS // 60} 分钟，可在本页删除。",
@@ -2066,13 +2159,16 @@ def delete_uploads(job_id: str):
 @app.get("/download/<path:filename>")
 def download_file(filename: str):
     safe_name = secure_filename(filename)
-    if safe_name != filename or not safe_name.startswith("optimized_resume_") or not safe_name.endswith(".docx"):
+    valid_docx = safe_name.startswith("optimized_resume_") and safe_name.endswith(".docx")
+    valid_png = safe_name.startswith("resume_image_") and safe_name.endswith(".png")
+    if safe_name != filename or not (valid_docx or valid_png):
         return render_template("error.html", message="下载文件不存在或文件名无效。"), 404
+    mimetype = "image/png" if valid_png else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     return send_from_directory(
         OUTPUT_DIR,
         safe_name,
         as_attachment=True,
-        mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        mimetype=mimetype,
         download_name=safe_name,
     )
 
