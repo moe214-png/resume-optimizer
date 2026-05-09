@@ -39,7 +39,7 @@ MAX_UPLOAD_SIZE = 40 * 1024 * 1024
 WORD_NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 XML_SPACE = "{http://www.w3.org/XML/1998/namespace}space"
 OCR_ENGINE = None
-APP_VERSION = "2026-05-09-docx-image-greeting-v4"
+APP_VERSION = "2026-05-09-docx-image-greeting-v5"
 PDF_FORMAT_WARNING = "你上传的是 PDF 简历。PDF 只能提取文字后重新生成 Word，无法完整保留原简历版式；如需保留格式，请上传原始 DOCX 简历。"
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "").strip()
 UPLOAD_TTL_SECONDS = int(os.getenv("UPLOAD_TTL_SECONDS", str(2 * 60 * 60)))
@@ -1539,16 +1539,16 @@ def build_boss_greetings(match_analysis: dict, job_profile: dict, target_role: s
     focus_text = "、".join(tasks or labels[:2]) if (tasks or labels) else "岗位核心要求"
 
     first = (
-        f"您好，看到贵司在招{role}，我的经历里比较贴合的是{first_evidence}。"
+        f"您好，看到贵司在招{role}，我具备与岗位职责较匹配的实操经验：{first_evidence}。"
         if first_evidence
-        else f"您好，看到贵司在招{role}，我过往经历和{label_text}比较相关。"
+        else f"您好，看到贵司在招{role}，我过往经历与{label_text}等方向较为相关。"
     )
     second = (
-        f"我的匹配标签可以概括为{label_text}，也做过{second_evidence}这类实际项目。"
+        f"能力侧重点覆盖{label_text}，并沉淀过{second_evidence}等项目经验。"
         if second_evidence
-        else f"我的匹配标签可以概括为{label_text}，整体和岗位要求的能力方向比较接近。"
+        else f"能力侧重点覆盖{label_text}，整体与岗位要求的能力方向较为一致。"
     )
-    third = f"看下来JD里比较重视{focus_text}，这部分和我之前做的事能对上，希望有机会简单沟通一下，谢谢。"
+    third = f"结合JD对{focus_text}的要求，我认为过往经历有较强相关性，希望有进一步机会与您沟通，谢谢。"
 
     return [compact_sentence(item, 92) for item in (first, second, third)]
 
